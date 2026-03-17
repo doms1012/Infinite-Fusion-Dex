@@ -2,7 +2,35 @@ import streamlit as st
 import pandas as pd
 
 # Set page configuration
-st.set_page_config(page_title="Pokemon Fusion Sorter", layout="wide")
+st.set_page_config(page_title="Pokemon Fusion Sorter", layout="wide", initial_sidebar_state="expanded")
+
+# --- 0. CUSTOM STYLING ---
+st.markdown("""
+<style>
+    /* Gradient Title */
+    h1 {
+        text-align: center;
+        background: -webkit-linear-gradient(45deg, #3b82f6, #9333ea);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 800 !important;
+        padding-bottom: 0.5rem;
+    }
+    
+    /* Dataframe rounded corners and shadow */
+    [data-testid="stDataFrame"] {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(156, 163, 175, 0.2);
+    }
+    
+    /* Reduce top padding for a sleeker look */
+    .block-container {
+        padding-top: 2rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- 1. SETUP DATA & CACHING ---
 @st.cache_data
@@ -45,6 +73,7 @@ st.session_state.my_box = selected_mons
 # --- 3. MAIN UI ---
 st.title("🧬 Pokemon Fusion Sorter")
 
+st.markdown("#### ⚙️ Sorting & Filtering")
 # Filters and Sort Options in columns
 col1, col2, col3 = st.columns(3)
 
