@@ -6,28 +6,61 @@ import requests
 from pkmn_logic import calculate_effectiveness, TYPE_COLORS
 
 # Set page configuration
-st.set_page_config(page_title="Pokemon Fusion Sorter", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Pokemon Fusion Companion", layout="wide", initial_sidebar_state="expanded")
 
-# --- 0. STYLE (CLEAN OSWALD & INTEGRATED BUTTONS) ---
+# --- 0. STYLE (THE ULTIMATE OSWALD FIX) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;700&display=swap');
 
-    h1, h2, h3, .stSubheader, .stat-label, [data-testid="stDataFrame"] * {
+    /* 1. THE MAIN TITLE (Aggressive Selection) */
+    /* This targets the exact div structure for st.title */
+    [data-testid="stHeader"] h1, 
+    .stMarkdown h1, 
+    h1#pokemon-fusion-companion {
         font-family: 'Oswald', sans-serif !important;
-    }
-
-    h1 {
-        text-align: center;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        text-align: center !important;
+        letter-spacing: 2px !important;
         background: -webkit-linear-gradient(45deg, #3b82f6, #9333ea);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-weight: 700 !important;
-        text-transform: uppercase;
-        letter-spacing: 2px;
+        padding-bottom: 20px;
+        display: block !important;
     }
 
-    /* REVERSE BUTTON STYLING */
+    /* 2. SIDEBAR & SUBHEADERS (Box Manager, etc.) */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    .stSubheader, 
+    h2, h3 {
+        font-family: 'Oswald', sans-serif !important;
+        text-transform: uppercase !important;
+        font-weight: 600 !important;
+    }
+
+    /* 3. TABLE DATA & HEADERS */
+    [data-testid="stDataFrame"] * {
+        font-family: 'Oswald', sans-serif !important;
+    }
+
+    /* 4. STAT LABELS & PROGRESS BARS */
+    .stat-label {
+        font-family: 'Oswald', sans-serif !important;
+        font-size: 0.9rem;
+        font-weight: 400;
+        margin-bottom: 4px; 
+        margin-top: 12px;    
+        text-transform: uppercase;
+        display: block;
+    }
+    
+    div[data-testid="stProgress"] > div > div > div > div {
+        height: 8px !important;
+    }
+
+    /* 5. INTEGRATED SWAP BUTTON */
     .stButton > button {
         width: 100%;
         border-radius: 8px;
@@ -40,27 +73,20 @@ st.markdown("""
         font-size: 0.8rem;
         letter-spacing: 1px;
         transition: all 0.2s ease;
-        margin-top: -10px;
+        margin-top: -10px; 
     }
 
     .stButton > button:hover {
-        background: linear-gradient(45deg, #3b82f6, #9333ea);
-        color: white;
-        border-color: transparent;
+        background: linear-gradient(45deg, #3b82f6, #9333ea) !important;
+        color: white !important;
+        border-color: transparent !important;
         transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
 
-    .stat-label {
-        font-size: 0.9rem;
-        font-weight: 400;
-        margin-bottom: 4px; 
-        margin-top: 12px;    
-        text-transform: uppercase;
-        display: block;
-    }
-    
-    div[data-testid="stProgress"] > div > div > div > div {
-        height: 8px !important;
+    /* 6. CAPTIONS & MARKDOWN TEXT */
+    [data-testid="stCaption"], .stMarkdown p {
+        font-family: 'Oswald', sans-serif !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -141,7 +167,7 @@ selected_labels = st.sidebar.multiselect("Add to Box:", options=list(pokemon_lab
 current_box_ids = [pokemon_labels[label] for label in selected_labels]
 
 # --- 3. DATA PROCESSING ---
-st.title("Pokemon Fusion Sorter")
+st.title("Pokemon Fusion Companion")
 c1, c2, c3 = st.columns(3)
 sort_by = c1.selectbox("Sort By", options=["Total", "HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"])
 order = c2.selectbox("Order", options=["Descending", "Ascending"])
