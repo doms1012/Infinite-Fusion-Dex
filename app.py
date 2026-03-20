@@ -8,16 +8,19 @@ from pkmn_logic import calculate_effectiveness, TYPE_COLORS
 # Set page configuration
 st.set_page_config(page_title="Pokemon Fusion Companion", layout="wide", initial_sidebar_state="expanded")
 
-# --- 0. STYLE (THE ULTIMATE OSWALD FIX) ---
+# --- 0. STYLE (THE ULTIMATE OSWALD & UI SYNC) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;700&display=swap');
 
-    /* 1. THE MAIN TITLE (Aggressive Selection) */
-    /* This targets the exact div structure for st.title */
-    [data-testid="stHeader"] h1, 
-    .stMarkdown h1, 
-    h1#pokemon-fusion-companion {
+    /* 1. UNIVERSAL FONT OVERRIDE */
+    h1, h2, h3, .stSubheader, .stat-label, [data-testid="stDataFrame"] *, 
+    [data-testid="stCaption"] p, .stMarkdown p, .stMarkdown span {
+        font-family: 'Oswald', sans-serif !important;
+    }
+
+    /* 2. THE MAIN TITLE (Pokemon Fusion Companion) */
+    .stMarkdown h1, [data-testid="stHeader"] h1 {
         font-family: 'Oswald', sans-serif !important;
         font-weight: 700 !important;
         text-transform: uppercase !important;
@@ -27,40 +30,16 @@ st.markdown("""
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         padding-bottom: 20px;
-        display: block !important;
     }
 
-    /* 2. SIDEBAR & SUBHEADERS (Box Manager, etc.) */
-    [data-testid="stSidebar"] h1, 
-    [data-testid="stSidebar"] h2, 
-    .stSubheader, 
-    h2, h3 {
+    /* 3. SIDEBAR HEADERS */
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {
         font-family: 'Oswald', sans-serif !important;
         text-transform: uppercase !important;
         font-weight: 600 !important;
     }
 
-    /* 3. TABLE DATA & HEADERS */
-    [data-testid="stDataFrame"] * {
-        font-family: 'Oswald', sans-serif !important;
-    }
-
-    /* 4. STAT LABELS & PROGRESS BARS */
-    .stat-label {
-        font-family: 'Oswald', sans-serif !important;
-        font-size: 0.9rem;
-        font-weight: 400;
-        margin-bottom: 4px; 
-        margin-top: 12px;    
-        text-transform: uppercase;
-        display: block;
-    }
-    
-    div[data-testid="stProgress"] > div > div > div > div {
-        height: 8px !important;
-    }
-
-    /* 5. INTEGRATED SWAP BUTTON */
+    /* 4. INTEGRATED SWAP BUTTON */
     .stButton > button {
         width: 100%;
         border-radius: 8px;
@@ -70,7 +49,7 @@ st.markdown("""
         font-family: 'Oswald', sans-serif !important;
         text-transform: uppercase;
         font-weight: 400;
-        font-size: 0.8rem;
+        font-size: 0.85rem;
         letter-spacing: 1px;
         transition: all 0.2s ease;
         margin-top: -10px; 
@@ -84,9 +63,18 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
     }
 
-    /* 6. CAPTIONS & MARKDOWN TEXT */
-    [data-testid="stCaption"], .stMarkdown p {
-        font-family: 'Oswald', sans-serif !important;
+    /* 5. STAT LABELS & PROGRESS BARS */
+    .stat-label {
+        font-size: 0.9rem;
+        font-weight: 400;
+        margin-bottom: 4px; 
+        margin-top: 12px;    
+        text-transform: uppercase;
+        display: block;
+    }
+    
+    div[data-testid="stProgress"] > div > div > div > div {
+        height: 10px !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -152,7 +140,6 @@ def get_base_sprite(dex_id):
 def check_fusion_sprite(head_id, body_id):
     url = f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(head_id)}.{int(body_id)}.png"
     try:
-        # Pings the URL to see if it exists without downloading the whole image
         response = requests.head(url, timeout=0.5)
         if response.status_code == 200:
             return url
@@ -165,6 +152,16 @@ st.sidebar.title("Box Manager")
 pokemon_labels = {f"#{idx} {row['name']}": idx for idx, row in df_base.sort_index().iterrows()}
 selected_labels = st.sidebar.multiselect("Add to Box:", options=list(pokemon_labels.keys()), key="my_box_labels")
 current_box_ids = [pokemon_labels[label] for label in selected_labels]
+
+if current_box_ids:
+    st.sidebar.markdown("### Your Box")
+    with st.sidebar.container(border=True):
+        sorted_box_ids = sorted(current_box_ids)
+        for i in range(0, len(sorted_box_ids), 5):
+            cols = st.columns(5)
+            for k in range(5):
+                if i + k < len(sorted_box_ids):
+                    cols[k].image(get_base_sprite(sorted_box_ids[i + k]), use_container_width=True)
 
 # --- 3. DATA PROCESSING ---
 st.title("Pokemon Fusion Companion")
@@ -206,7 +203,7 @@ event = st.dataframe(
     key="fusion_table"
 )
 
-# --- 5. VISUALIZATION ---
+# --- 5. VISUALIZATION (DETAIL VIEW) ---
 if event.selection.cells:
     try:
         row_idx = event.selection.cells[0][0]
@@ -233,11 +230,10 @@ if event.selection.cells:
         col_left, col_right = st.columns(2)
 
         with col_left:
-            # Main Fusion Image with Existence Check for Placeholder
             img_url = check_fusion_sprite(h_id, b_id)
             st.image(img_url, use_container_width=True)
             if img_url == POKEBALL_ICON:
-                st.caption("Custom sprite does not exist.")
+                st.caption("Custom sprite not found - showing placeholder.")
             
             st.write(f"**Type:** {current_fusion['Type']} | **Ability:** {current_fusion['Abilities']}")
             
@@ -272,3 +268,5 @@ if event.selection.cells:
 
     except (IndexError, KeyError):
         st.rerun()
+
+st.write(f"Generated {len(results_df)} unique fusions.")
