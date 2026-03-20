@@ -6,16 +6,13 @@ import itertools
 # Set page configuration
 st.set_page_config(page_title="Pokemon Fusion Sorter", layout="wide", initial_sidebar_state="expanded")
 
-# --- 0. STYLE (SURGICAL FONT TARGETING) ---
+# --- 0. STYLE (THE STABLE FONT FIX) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;700&display=swap');
 
-    /* Target only specific text elements to preserve UI icons */
-    h1, h2, h3, .stSubheader, p, .stMarkdown, 
-    [data-testid="stSidebar"] .stMarkdown, 
-    [data-testid="stDataFrame"] div, 
-    .stat-label, .stButton button {
+    /* Target specific content containers only to protect UI icons */
+    h1, h2, h3, .stSubheader, .stat-label, [data-testid="stDataFrame"] * {
         font-family: 'Oswald', sans-serif !important;
     }
 
@@ -26,6 +23,7 @@ st.markdown("""
         -webkit-text-fill-color: transparent;
         font-weight: 700 !important;
         text-transform: uppercase;
+        letter-spacing: 2px;
     }
 
     [data-testid="stDataFrame"] {
@@ -34,14 +32,12 @@ st.markdown("""
         border: 1px solid rgba(156, 163, 175, 0.2);
     }
 
-    /* Fixed Stat Bar Labels spacing */
     .stat-label {
         font-size: 1rem;
         font-weight: 400;
         margin-bottom: 8px; 
         margin-top: 16px;    
         text-transform: uppercase;
-        letter-spacing: 1.5px;
         display: block;
         line-height: 1;
     }
@@ -61,7 +57,8 @@ class FusionEngine:
         return (2 * int(dominant) // 3) + (int(other) // 3)
 
     def get_fusion_data(self, head_dex, body_dex):
-        head, body = self.df.loc[head_dex], self.df.loc[body_dex]
+        head = self.df.loc[head_dex]
+        body = self.df.loc[body_dex]
         
         stats = {
             "HP": self._calc_stat(head['hp'], body['hp']),
@@ -98,8 +95,10 @@ def load_base_data():
 df_base, global_maxes = load_base_data()
 engine = FusionEngine(df_base)
 
-def get_base_sprite(dex_id): return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(dex_id)}.png"
-def get_fusion_sprite(head_id, body_id): return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(head_id)}.{int(body_id)}.png"
+def get_base_sprite(dex_id): 
+    return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(dex_id)}.png"
+def get_fusion_sprite(head_id, body_id): 
+    return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(head_id)}.{int(body_id)}.png"
 
 # --- 2. SIDEBAR ---
 st.sidebar.title("Box Manager")
@@ -113,33 +112,34 @@ if current_box_ids:
         sorted_box_ids = sorted(current_box_ids)
         for i in range(0, len(sorted_box_ids), 5):
             cols = st.columns(5)
-            for j in range(5):
-                if i + j < len(sorted_box_ids):
-                    cols[j].image(get_base_sprite(sorted_box_ids[i + j]), use_container_width=True)
+            for k in range(5):
+                if i + k < len(sorted_box_ids):
+                    cols[k].image(get_base_sprite(sorted_box_ids[i + k]), use_container_width=True)
 
-# --- 3. MAIN UI ---
+# --- 3. DATA PROCESSING ---
 st.title("Pokemon Fusion Sorter")
-# ... (rest of your columns/selectbox code)
+c1, c2, c3 = st.columns(3)
+sort_by = c1.selectbox("Sort By", options=["Total", "HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"])
+order = c2.selectbox("Order", options=["Descending", "Ascending"])
+hide_self = c3.checkbox("Hide Self-Fusions", value=True)
 
 if not current_box_ids:
     st.info("Add Pokemon to your Box in the sidebar.")
     st.stop()
 
-# 1. CALCULATE COMBOS
+# 1. GENERATE COMBOS
 combos = list(itertools.permutations(current_box_ids, 2)) if hide_self else list(itertools.product(current_box_ids, repeat=2))
 
-# 2. ADD SAFEGUARD (NEW)
+# 2. ADD SAFEGUARD (PREVENTS CRASHES)
 MAX_FUSIONS = 5000 
 if len(combos) > MAX_FUSIONS:
-    st.error(f"Too many fusions ({len(combos):,})! Please reduce your Box size or use filters. Limit is {MAX_FUSIONS:,}.")
+    st.error(f"Too many fusions ({len(combos):,})! Limit is {MAX_FUSIONS:,}. Please remove some Pokemon from your box.")
     st.stop()
 
-# 3. PROCEED IF SAFE
-fusion_results = [engine.get_fusion_data(h, b) for h, b in combos]
 fusion_results = [engine.get_fusion_data(h, b) for h, b in combos]
 
 if not fusion_results:
-    st.warning("Add more Pokemon to see results.")
+    st.warning("No fusions possible. Add more Pokemon.")
     st.stop()
 
 results_df = pd.DataFrame(fusion_results).sort_values(by=sort_by, ascending=(order == "Ascending"))
@@ -160,7 +160,7 @@ event = st.dataframe(
     use_container_width=True,
     on_select="rerun", 
     selection_mode="single-cell",
-    key="fusion_table" 
+    key="fusion_table"
 )
 
 # --- 5. VISUALIZATION ---
@@ -184,7 +184,6 @@ if event.selection.cells:
             st.markdown(f"<div class='stat-label'>{stat}: {val}</div>", unsafe_allow_html=True)
             st.progress(min(val / global_maxes[stat], 1.0))
             
-    # Standard button reset
     if st.button("Close Detail"):
         st.rerun()
 
