@@ -8,7 +8,7 @@ from pkmn_logic import calculate_effectiveness, TYPE_COLORS
 # Set page configuration
 st.set_page_config(page_title="Pokemon Fusion Companion", layout="wide", initial_sidebar_state="expanded")
 
-# --- 0. STYLE (THE ULTIMATE OSWALD & UI SYNC) ---
+# --- 0. STYLE (REVERTED TO CLEAN NEUTRAL THEME) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;700&display=swap');
@@ -19,7 +19,7 @@ st.markdown("""
         font-family: 'Oswald', sans-serif !important;
     }
 
-    /* 2. THE MAIN TITLE (Pokemon Fusion Companion) */
+    /* 2. THE MAIN TITLE */
     .stMarkdown h1, [data-testid="stHeader"] h1 {
         font-family: 'Oswald', sans-serif !important;
         font-weight: 700 !important;
@@ -32,16 +32,24 @@ st.markdown("""
         padding-bottom: 20px;
     }
 
-    /* 3. SIDEBAR HEADERS */
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {
+    /* 3. SIDEBAR CHIPS (Neutral Theme) */
+    span[data-baseweb="tag"] {
+        background-color: #262730 !important;
+        border: 1px solid #3b82f6 !important;
+        border-radius: 4px !important;
+    }
+    span[data-baseweb="tag"] span {
+        color: white !important;
         font-family: 'Oswald', sans-serif !important;
-        text-transform: uppercase !important;
-        font-weight: 600 !important;
+        text-transform: uppercase;
+        font-size: 0.8rem;
+    }
+    span[data-baseweb="tag"] svg {
+        fill: white !important;
     }
 
     /* 4. INTEGRATED SWAP BUTTON */
     .stButton > button {
-        width: 100%;
         border-radius: 8px;
         border: 1px solid rgba(59, 130, 246, 0.5);
         background-color: rgba(59, 130, 246, 0.05);
@@ -107,8 +115,9 @@ class FusionEngine:
         t2 = body['type2'] if pd.notna(body['type2']) else body['type1']
         if t2 == t1: t2 = body['type1']
 
-        prefix = str(head['name_prefix'])
-        suffix = str(body['name_suffix']).lower()
+        prefix = str(head['name_prefix']) if 'name_prefix' in head.index else head['name'][:len(head['name'])//2]
+        suffix = str(body['name_suffix']).lower() if 'name_suffix' in body.index else body['name'][len(body['name'])//2:].lower()
+        
         fusion_name = (prefix + suffix).capitalize()
 
         return {
@@ -149,7 +158,13 @@ def check_fusion_sprite(head_id, body_id):
 
 # --- 2. SIDEBAR ---
 st.sidebar.title("Box Manager")
-pokemon_labels = {f"#{idx} {row['name']}": idx for idx, row in df_base.sort_index().iterrows()}
+
+pokemon_labels = {}
+for idx, row in df_base.sort_index().iterrows():
+    # Clean label format: #123 BULBASAUR
+    label = f"#{idx} {row['name']}"
+    pokemon_labels[label] = idx
+
 selected_labels = st.sidebar.multiselect("Add to Box:", options=list(pokemon_labels.keys()), key="my_box_labels")
 current_box_ids = [pokemon_labels[label] for label in selected_labels]
 
@@ -161,7 +176,7 @@ if current_box_ids:
             cols = st.columns(5)
             for k in range(5):
                 if i + k < len(sorted_box_ids):
-                    cols[k].image(get_base_sprite(sorted_box_ids[i + k]), use_container_width=True)
+                    cols[k].image(get_base_sprite(sorted_box_ids[i + k]), width="stretch")
 
 # --- 3. DATA PROCESSING ---
 st.title("Pokemon Fusion Companion")
@@ -183,7 +198,6 @@ if not combos:
 fusion_results = [engine.get_fusion_data(h, b) for h, b in combos]
 results_df = pd.DataFrame(fusion_results).sort_values(by=sort_by, ascending=(order == "Ascending"))
 
-# Prepare table visuals
 results_df['Fusion Sprite'] = results_df.apply(lambda r: f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(r['Head ID'])}.{int(r['Body ID'])}.png", axis=1)
 results_df['Head Icon'] = results_df['Head ID'].apply(get_base_sprite)
 results_df['Body Icon'] = results_df['Body ID'].apply(get_base_sprite)
@@ -197,7 +211,7 @@ event = st.dataframe(
         "Body Icon": st.column_config.ImageColumn("Body Sprite", width="small"),
     },
     hide_index=True, 
-    use_container_width=True,
+    width="stretch",
     on_select="rerun", 
     selection_mode="single-cell",
     key="fusion_table"
@@ -221,9 +235,8 @@ if event.selection.cells:
         
         st.divider()
         
-        # Header Area
         st.subheader(f"{current_fusion['Fusion Name']} (#{current_fusion['Fusion Dex']})")
-        if st.button("Swap Head and Body", use_container_width=False):
+        if st.button("Swap Head and Body", width="content"):
             st.session_state.swap_ids = (b_id, h_id)
             st.rerun()
 
@@ -231,7 +244,7 @@ if event.selection.cells:
 
         with col_left:
             img_url = check_fusion_sprite(h_id, b_id)
-            st.image(img_url, use_container_width=True)
+            st.image(img_url, width="stretch")
             if img_url == POKEBALL_ICON:
                 st.caption("Custom sprite not found - showing placeholder.")
             
@@ -243,21 +256,21 @@ if event.selection.cells:
             with w1:
                 st.error("Weak")
                 for t, m in effs.items():
-                    if m > 1: st.markdown(f"<span style='color:{TYPE_COLORS.get(t, '#777')};'>{t}</span> {m}x", unsafe_allow_html=True)
+                    if m > 1: st.markdown(f"<span style='color:{TYPE_COLORS.get(t, '#777')}; font-weight:bold;'>{t}</span> {m}x", unsafe_allow_html=True)
             with w2:
                 st.info("Resist")
                 for t, m in effs.items():
-                    if 0 < m < 1: st.markdown(f"<span style='color:{TYPE_COLORS.get(t, '#777')};'>{t}</span> {m}x", unsafe_allow_html=True)
+                    if 0 < m < 1: st.markdown(f"<span style='color:{TYPE_COLORS.get(t, '#777')}; font-weight:bold;'>{t}</span> {m}x", unsafe_allow_html=True)
             with w3:
                 st.warning("Immune")
                 for t, m in effs.items():
-                    if m == 0: st.markdown(f"<span style='color:{TYPE_COLORS.get(t, '#777')};'>{t}</span>", unsafe_allow_html=True)
+                    if m == 0: st.markdown(f"<span style='color:{TYPE_COLORS.get(t, '#777')}; font-weight:bold;'>{t}</span>", unsafe_allow_html=True)
 
         with col_right:
             st.markdown("### Fusion Components")
             comp_head, comp_body = st.columns(2)
-            comp_head.image(get_base_sprite(h_id), caption=f"Head: {current_fusion['Head']}")
-            comp_body.image(get_base_sprite(b_id), caption=f"Body: {current_fusion['Body']}")
+            comp_head.image(get_base_sprite(h_id), caption=f"Head: {current_fusion['Head']}", width="stretch")
+            comp_body.image(get_base_sprite(b_id), caption=f"Body: {current_fusion['Body']}", width="stretch")
 
             st.markdown("### Base Stats")
             for stat in ["HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"]:
