@@ -1,274 +1,184 @@
 import streamlit as st
 import pandas as pd
+import math
+import itertools
 
 # Set page configuration
 st.set_page_config(page_title="Pokemon Fusion Sorter", layout="wide", initial_sidebar_state="expanded")
 
-# --- 0. CUSTOM STYLING ---
+# --- 0. STYLE (SURGICAL FONT TARGETING) ---
 st.markdown("""
 <style>
-    /* Gradient Title */
+    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;700&display=swap');
+
+    /* Target only specific text elements to preserve UI icons */
+    h1, h2, h3, .stSubheader, p, .stMarkdown, 
+    [data-testid="stSidebar"] .stMarkdown, 
+    [data-testid="stDataFrame"] div, 
+    .stat-label, .stButton button {
+        font-family: 'Oswald', sans-serif !important;
+    }
+
     h1 {
         text-align: center;
         background: -webkit-linear-gradient(45deg, #3b82f6, #9333ea);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-weight: 800 !important;
-        padding-bottom: 0.5rem;
+        font-weight: 700 !important;
+        text-transform: uppercase;
     }
-    
-    /* Dataframe rounded corners and shadow */
+
     [data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        border-radius: 8px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         border: 1px solid rgba(156, 163, 175, 0.2);
     }
-    
-    /* Reduce top padding for a sleeker look */
-    .block-container {
-        padding-top: 2rem !important;
+
+    /* Fixed Stat Bar Labels spacing */
+    .stat-label {
+        font-size: 1rem;
+        font-weight: 400;
+        margin-bottom: 8px; 
+        margin-top: 16px;    
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        display: block;
+        line-height: 1;
     }
     
-    /* Sidebar Box & Overlay X Button */
-    [data-testid="stSidebar"] .stButton {
-        display: flex;
-        justify-content: flex-end;
-        margin-bottom: -20px; /* Pulls the image up underneath the button */
-        position: relative;
-        z-index: 10;
-    }
-    [data-testid="stSidebar"] [data-testid="stButton"] button {
-        background-color: rgba(239, 68, 68, 0.8) !important;
-        color: white !important;
-        border-radius: 50% !important;
-        width: 18px !important;
-        height: 18px !important;
-        min-height: 18px !important;
-        padding: 0 !important;
-        font-size: 10px !important;
-        line-height: 1 !important;
-        border: none !important;
-    }
-    [data-testid="stSidebar"] [data-testid="stButton"] button:hover {
-        background-color: rgba(239, 68, 68, 1) !important;
-    }
-    [data-testid="stSidebar"] [data-testid="column"] {
-        padding: 0 2px !important; /* Tighter 5-column grid spacing */
+    div[data-testid="stProgress"] > div > div > div > div {
+        height: 8px !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. SETUP DATA & CACHING ---
+# --- 1. ENGINE ---
+class FusionEngine:
+    def __init__(self, df):
+        self.df = df
+
+    def _calc_stat(self, dominant, other):
+        return (2 * int(dominant) // 3) + (int(other) // 3)
+
+    def get_fusion_data(self, head_dex, body_dex):
+        head, body = self.df.loc[head_dex], self.df.loc[body_dex]
+        
+        stats = {
+            "HP": self._calc_stat(head['hp'], body['hp']),
+            "Atk": self._calc_stat(head['atk'], body['atk']),
+            "Def": self._calc_stat(head['def'], body['def']),
+            "SpAtk": self._calc_stat(head['spatk'], body['spatk']),
+            "SpDef": self._calc_stat(head['spdef'], body['spdef']),
+            "Speed": self._calc_stat(head['speed'], body['speed'])
+        }
+        
+        if head['internal_id'] == ':SHEDINJA' or body['internal_id'] == ':SHEDINJA': 
+            stats["HP"] = 1
+        
+        t1 = 'Flying' if head['type1'] == 'Normal' and head['type2'] == 'Flying' else head['type1']
+        t2 = body['type2'] if pd.notna(body['type2']) else body['type1']
+        if t2 == t1: t2 = body['type1']
+
+        return {
+            "Fusion Dex": f"{int(head_dex)}.{int(body_dex)}",
+            "Head": head['name'], "Head ID": int(head_dex),
+            "Body": body['name'], "Body ID": int(body_dex),
+            "Type": f"{t1}/{t2}" if t1 != t2 else t1,
+            "Abilities": ", ".join(list(set([str(body['ability1']), str(head['ability1'])]))).replace('nan', ''),
+            **stats, "Total": sum(stats.values())
+        }
+
 @st.cache_data
-def load_data():
-    csv_url = "https://raw.githubusercontent.com/EarthBet/Fusion-Dex/main/fusionDex.csv"
-    # Force informalDex to string so "1.10" doesn't get parsed as "1.1"
-    df = pd.read_csv(csv_url, dtype={'informalDex': str})
-    # Clean up "Unnamed" columns
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    
-    def clean_name(a): return str(a).strip().capitalize()
-    df['nameHead'] = df['nameHead'].apply(clean_name)
-    df['nameBody'] = df['nameBody'].apply(clean_name)
-    df['type1'] = df['type1'].apply(clean_name)
-    df['type2'] = df['type2'].apply(clean_name)
-    
-    # Generate true idHead and idBody from informalDex and names
-    if 'informalDex' in df.columns and 'idHead' not in df.columns:
-        # Extract potential head and body IDs (handles formats like "1.4" or "1_4")
-        ids = df['informalDex'].astype(str).str.extract(r'(\d+)[^\d]+(\d+)')
-        single_ids = df['informalDex'].astype(str).str.extract(r'(\d+)')[0]
-        
-        # Build a reliable Name -> Base ID mapping dictionary
-        dex_map = {}
-        for name, head_id in zip(df['nameHead'], single_ids):
-            if pd.notna(head_id) and name not in dex_map:
-                dex_map[name] = head_id
-                
-        for name, body_id in zip(df['nameBody'], ids[1]):
-            if pd.notna(body_id) and name not in dex_map:
-                dex_map[name] = body_id
-                
-        # Map the exact Base IDs back to the dataframe to prevent duplicate heads
-        df['idHead'] = df['nameHead'].map(dex_map).fillna(single_ids)
-        df['idBody'] = df['nameBody'].map(dex_map).fillna(df['idHead'])
-        
-    return df
+def load_base_data():
+    df = pd.read_csv('species.csv')
+    df_indexed = df[df['dex_num'] > 0].drop_duplicates(subset=['dex_num']).set_index('dex_num')
+    maxes = {"HP": 255, "Atk": 190, "Def": 250, "SpAtk": 194, "SpDef": 250, "Speed": 200}
+    return df_indexed, maxes
 
-try:
-    df_original = load_data()
-    all_mons = sorted(list(set(df_original['nameHead'].unique()) | set(df_original['nameBody'].unique())))
-except Exception as e:
-    st.error(f"Error loading data: {e}")
-    st.stop()
+df_base, global_maxes = load_base_data()
+engine = FusionEngine(df_base)
 
-def find_id_column(df, keywords):
-    for col in df.columns:
-        # Normalize column names by removing spaces, underscores, and lowercasing
-        clean_col = col.lower().replace(' ', '').replace('_', '')
-        if clean_col in keywords:
-            return col
-    return None
+def get_base_sprite(dex_id): return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(dex_id)}.png"
+def get_fusion_sprite(head_id, body_id): return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{int(head_id)}.{int(body_id)}.png"
 
-head_keywords = ['idhead', 'headid', 'headdex', 'dexhead', 'id1', 'pokedex1', 'pokemon1id']
-body_keywords = ['idbody', 'bodyid', 'bodydex', 'dexbody', 'id2', 'pokedex2', 'pokemon2id']
-
-dex_head_col = find_id_column(df_original, head_keywords)
-dex_body_col = find_id_column(df_original, body_keywords)
-
-# Fallback error handling to show actual CSV column names if it fails
-if not dex_head_col or not dex_body_col:
-    st.error(f"**Error:** Could not automatically locate the ID columns.\n\n**Available CSV columns:** `{', '.join(df_original.columns)}`\n\nPlease check the exact header names in your CSV file and add them to `head_keywords` and `body_keywords` in `app.py`.")
-    st.stop()
-
-col_map = {'dex_head': dex_head_col, 'dex_body': dex_body_col}
-
-def clean_id(val):
-    """Cleans up float formatting and removes dataset suffixes like '-420'"""
-    # Strip out any hyphens and the text after it (e.g., "17-420" -> "17")
-    clean_val = str(val).split('-')[0].strip()
-    try:
-        return str(int(float(clean_val)))
-    except (ValueError, TypeError):
-        return clean_val
-
-def get_base_sprite(dex_id):
-    c_id = clean_id(dex_id)
-    return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{c_id}.png"
-
-def get_fusion_sprite(head_id, body_id):
-    h, b = clean_id(head_id), clean_id(body_id)
-    return f"https://ifd-spaces.sfo2.cdn.digitaloceanspaces.com/custom/{h}.{b}.png"
-
-# Create a mapping for Box Manager (Name -> Dex ID)
-name_to_id = dict(zip(df_original['nameHead'], df_original[col_map['dex_head']]))
-
-# --- 2. SIDEBAR / BOX MANAGER ---
+# --- 2. SIDEBAR ---
 st.sidebar.title("Box Manager")
-st.sidebar.write("Select the Pokemon you currently own.")
+pokemon_labels = {f"#{idx} {row['name']}": idx for idx, row in df_base.sort_index().iterrows()}
+selected_labels = st.sidebar.multiselect("Add to Box:", options=list(pokemon_labels.keys()), key="my_box_labels")
+current_box_ids = [pokemon_labels[label] for label in selected_labels]
 
-# Use Streamlit's native 'key' parameter to bind directly to session state. This prevents stuttering/UI desync.
-st.sidebar.multiselect(
-    "Search and Add Pokemon:",
-    options=all_mons,
-    key="my_box",
-    help="Type to search for Pokemon names"
-)
-
-def remove_from_box(mon):
-    st.session_state.my_box.remove(mon)
-
-# Display the organized box with sprites below
-if st.session_state.my_box:
-    st.sidebar.markdown("### 🗃️ Your Box")
+if current_box_ids:
+    st.sidebar.markdown("### Your Box")
     with st.sidebar.container(border=True):
-        sorted_box = sorted(st.session_state.my_box)
-        # 5x5 Grid pattern (rendered row by row)
-        for i in range(0, len(sorted_box), 5):
+        sorted_box_ids = sorted(current_box_ids)
+        for i in range(0, len(sorted_box_ids), 5):
             cols = st.columns(5)
             for j in range(5):
-                if i + j < len(sorted_box):
-                    mon = sorted_box[i + j]
-                    with cols[j]:
-                        st.button("✖", key=f"rm_{mon}", on_click=remove_from_box, args=(mon,), help=f"Remove {mon}")
-                        dex_id = name_to_id.get(mon, 0)
-                        st.image(get_base_sprite(dex_id), use_container_width=True)
-                        st.markdown(f"<p style='text-align: center; font-size: 9px; margin-top: -5px; word-wrap: break-word; line-height: 1.1;'>{mon}</p>", unsafe_allow_html=True)
+                if i + j < len(sorted_box_ids):
+                    cols[j].image(get_base_sprite(sorted_box_ids[i + j]), use_container_width=True)
 
 # --- 3. MAIN UI ---
 st.title("Pokemon Fusion Sorter")
+c1, c2, c3 = st.columns(3)
+sort_by = c1.selectbox("Sort By", options=["Total", "HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"])
+order = c2.selectbox("Order", options=["Descending", "Ascending"])
+hide_self = c3.checkbox("Hide Self-Fusions", value=True)
 
-st.markdown("#### ⚙️ Sorting & Filtering")
-# Filters and Sort Options in columns
-col1, col2, col3 = st.columns(3)
+if not current_box_ids:
+    st.info("Add Pokemon to your Box in the sidebar.")
+    st.stop()
 
-with col1:
-    sort_options = {
-        'base_total': 'Total Stats',
-        'hp': 'HP',
-        'attack': 'Attack',
-        'defense': 'Defense',
-        'sp_attack': 'Special Attack',
-        'sp_defense': 'Special Defense',
-        'speed': 'Speed'
-    }
-    # Dynamic column mapping (handles different CSV versions)
-    available_sort_cols = [c for c in sort_options.keys() if c in df_original.columns]
-    sort_by_display = st.selectbox("Sort By:", options=available_sort_cols, format_func=lambda x: sort_options[x], index=0)
+combos = list(itertools.permutations(current_box_ids, 2)) if hide_self else list(itertools.product(current_box_ids, repeat=2))
+fusion_results = [engine.get_fusion_data(h, b) for h, b in combos]
 
-with col2:
-    order = st.selectbox("Order:", options=["Descending", "Ascending"])
+if not fusion_results:
+    st.warning("Add more Pokemon to see results.")
+    st.stop()
 
-with col3:
-    hide_self = st.checkbox("Hide Self-Fusions", value=True)
+results_df = pd.DataFrame(fusion_results).sort_values(by=sort_by, ascending=(order == "Ascending"))
+results_df['Fusion Sprite'] = results_df.apply(lambda r: get_fusion_sprite(r['Head ID'], r['Body ID']), axis=1)
+results_df['Head Icon'] = results_df['Head ID'].apply(get_base_sprite)
+results_df['Body Icon'] = results_df['Body ID'].apply(get_base_sprite)
 
-# --- 4. PROCESSING ---
-temp_df = df_original.copy()
-
-# Filter: Self Fusions
-if hide_self:
-    temp_df = temp_df[temp_df['nameHead'] != temp_df['nameBody']]
-
-# Filter: Box (Only if box is not empty)
-if st.session_state.my_box:
-    temp_df = temp_df[temp_df['nameHead'].isin(st.session_state.my_box) & 
-                       temp_df['nameBody'].isin(st.session_state.my_box)]
-else:
-    st.info("💡 Your box is empty. Showing all possible fusions. Use the sidebar to add Pokemon you own.")
-
-# Apply Sorting
-temp_df = temp_df.sort_values(by=sort_by_display, ascending=(order == "Ascending"))
-
-# --- 5. DISPLAY RESULTS ---
-# We use Streamlit's native dataframe display with image support
-results_df = temp_df.head(50).copy()
-
-# Formatting for display
-friendly_names = {
-    'nameHead': 'Head Name',
-    'nameBody': 'Body Name',
-    'type1': 'Type 1',
-    'type2': 'Type 2',
-    'base_total': 'Total',
-    'hp': 'HP',
-    'attack': 'Attack',
-    'defense': 'Defense',
-    'sp_attack': 'Special Attack',
-    'sp_defense': 'Special Defense',
-    'speed': 'Speed'
-}
-
-# Add sprite URL columns for Streamlit to render
-results_df['Head Icon'] = results_df[col_map['dex_head']].apply(get_base_sprite)
-results_df['Body Icon'] = results_df[col_map['dex_body']].apply(get_base_sprite)
-
-# Generate Custom Fused Sprites
-results_df['Fused Sprite'] = results_df.apply(lambda row: get_fusion_sprite(row[col_map['dex_head']], row[col_map['dex_body']]), axis=1)
-
-# Reorder columns to put sprites next to names and Dex ID first
-dex_col_candidates = [c for c in results_df.columns if c.lower() in ['informaldex', 'informal_dex']]
-dex_col = dex_col_candidates[0] if dex_col_candidates else results_df.columns[0]
-
-start_cols = [dex_col, 'Head Icon', 'nameHead', 'Body Icon', 'nameBody', 'Fused Sprite', 'type1', 'type2']
-
-# Ensure ALL fields from the CSV are shown
-remaining_cols = [c for c in results_df.columns if c not in start_cols]
-
-final_cols = start_cols + remaining_cols
-
-results_df = results_df[final_cols].rename(columns=friendly_names)
-
-# Render the table
-st.dataframe(
-    results_df,
+# --- 4. TABLE ---
+event = st.dataframe(
+    results_df[["Fusion Dex", "Fusion Sprite", "Head", "Head Icon", "Body", "Body Icon", "Type", "Total", "HP", "Atk", "Def", "SpAtk", "SpDef", "Speed", "Abilities"]],
     column_config={
-        "Head Icon": st.column_config.ImageColumn(" ", width="small"),
-        "Body Icon": st.column_config.ImageColumn(" ", width="small"),
-        "Fused Sprite": st.column_config.ImageColumn("Fusion", width="medium"),
+        "Fusion Sprite": st.column_config.ImageColumn("Fusion", width="small"),
+        "Head Icon": st.column_config.ImageColumn("", width="small"),
+        "Body Icon": st.column_config.ImageColumn("", width="small"),
+        "Total": st.column_config.NumberColumn("BST", format="%d", width="small"),
     },
-    hide_index=True,
-    use_container_width=False
+    hide_index=True, 
+    use_container_width=True,
+    on_select="rerun", 
+    selection_mode="single-cell",
+    key="fusion_table" 
 )
 
-st.write(f"Showing {len(results_df)} of {len(temp_df)} matches.")
+# --- 5. VISUALIZATION ---
+if event.selection.cells:
+    row_idx = event.selection.cells[0][0]
+    fusion = results_df.iloc[row_idx]
+    
+    st.divider()
+    with st.container(border=True):
+        st.subheader(f"Fusion Detail: {fusion['Head']} / {fusion['Body']}")
+        v1, v2, v3 = st.columns([1, 1, 1])
+        v1.image(get_base_sprite(fusion['Head ID']), caption=f"Head: {fusion['Head']}")
+        v2.markdown("<h2 style='text-align: center; padding-top: 20px;'>+</h2>", unsafe_allow_html=True)
+        v3.image(get_base_sprite(fusion['Body ID']), caption=f"Body: {fusion['Body']}")
+        st.image(get_fusion_sprite(fusion['Head ID'], fusion['Body ID']), use_container_width=True)
+        
+        st.write(f"**Type:** {fusion['Type']} | **BST:** {fusion['Total']} | **Abilities:** {fusion['Abilities']}")
+        
+        for stat in ["HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"]:
+            val = fusion[stat]
+            st.markdown(f"<div class='stat-label'>{stat}: {val}</div>", unsafe_allow_html=True)
+            st.progress(min(val / global_maxes[stat], 1.0))
+            
+    # Standard button reset
+    if st.button("Close Detail"):
+        st.rerun()
+
+st.write(f"Generated {len(results_df)} unique fusions.")
