@@ -119,16 +119,23 @@ if current_box_ids:
 
 # --- 3. MAIN UI ---
 st.title("Pokemon Fusion Sorter")
-c1, c2, c3 = st.columns(3)
-sort_by = c1.selectbox("Sort By", options=["Total", "HP", "Atk", "Def", "SpAtk", "SpDef", "Speed"])
-order = c2.selectbox("Order", options=["Descending", "Ascending"])
-hide_self = c3.checkbox("Hide Self-Fusions", value=True)
+# ... (rest of your columns/selectbox code)
 
 if not current_box_ids:
     st.info("Add Pokemon to your Box in the sidebar.")
     st.stop()
 
+# 1. CALCULATE COMBOS
 combos = list(itertools.permutations(current_box_ids, 2)) if hide_self else list(itertools.product(current_box_ids, repeat=2))
+
+# 2. ADD SAFEGUARD (NEW)
+MAX_FUSIONS = 5000 
+if len(combos) > MAX_FUSIONS:
+    st.error(f"Too many fusions ({len(combos):,})! Please reduce your Box size or use filters. Limit is {MAX_FUSIONS:,}.")
+    st.stop()
+
+# 3. PROCEED IF SAFE
+fusion_results = [engine.get_fusion_data(h, b) for h, b in combos]
 fusion_results = [engine.get_fusion_data(h, b) for h, b in combos]
 
 if not fusion_results:
