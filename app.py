@@ -18,8 +18,21 @@ st.markdown("""
     [data-testid="stCaption"] p, .stMarkdown p, .stMarkdown span {
         font-family: 'Oswald', sans-serif !important;
     }
-            
+    
+    
+/* Make the "Image Button" look like a regular image */
+[data-testid="column"] .stButton > button:has(img) {
+    border: none !important;
+    background: transparent !important;
+    padding: 0px !important;
+    box-shadow: none !important;
+    width: 100% !important;
+}
 
+[data-testid="column"] .stButton > button:has(img):hover {
+    transform: scale(1.05);
+    transition: transform 0.2s ease;
+}
 
     /* 2. THE MAIN TITLE */
     .stMarkdown h1, [data-testid="stHeader"] h1 {
@@ -122,6 +135,22 @@ st.markdown("""
     div[data-testid="stDataFrame"] > div:first-child {
         margin-top: -20px !important;
     }
+            
+/* Styling the full-width remove buttons */
+div[data-testid="column"] button {
+    height: 24px !important;
+    line-height: 24px !important;
+    padding: 0px !important;
+    font-size: 0.7rem !important;
+    background-color: rgba(255, 75, 75, 0.1) !important;
+    color: #ff4b4b !important;
+    border: 1px solid rgba(255, 75, 75, 0.2) !important;
+}
+
+div[data-testid="column"] button:hover {
+    background-color: #ff4b4b !important;
+    color: white !important;
+}
 
     /* Tighten stat bars */
     .stat-label {
@@ -131,46 +160,60 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. ENGINE ---
+def get_type_badge_html(t, mini=False):
+    color = TYPE_COLORS.get(t, "#777")
+    padding = "1px 5px" if mini else "2px 10px"
+    font_size = "0.6rem" if mini else "0.8rem"
+    return f'<span class="type-badge" style="background-color: {color}; padding: {padding}; font-size: {font_size};">{t}</span>'
+
+# --- 1. ENGINE (ALIGNED WITH RUBY SOURCE) ---
 class FusionEngine:
     def __init__(self, df):
         self.df = df
 
     def _calc_stat(self, dominant, other):
+        # Matches Ruby: ((2 * dom) / 3) + (oth / 3).floor
         return (2 * int(dominant) // 3) + (int(other) // 3)
 
     def get_fusion_data(self, head_dex, body_dex):
         head = self.df.loc[head_dex]
         body = self.df.loc[body_dex]
         
+        # 1. Stats (Body Dominant for Atk, Def, Speed)
         stats = {
             "HP": self._calc_stat(head['hp'], body['hp']),
-            "Atk": self._calc_stat(head['atk'], body['atk']),
-            "Def": self._calc_stat(head['def'], body['def']),
             "SpAtk": self._calc_stat(head['spatk'], body['spatk']),
             "SpDef": self._calc_stat(head['spdef'], body['spdef']),
-            "Speed": self._calc_stat(head['speed'], body['speed'])
+            "Atk": self._calc_stat(body['atk'], head['atk']),
+            "Def": self._calc_stat(body['def'], head['def']),
+            "Speed": self._calc_stat(body['speed'], head['speed'])
         }
-        
         if head['internal_id'] == ':SHEDINJA' or body['internal_id'] == ':SHEDINJA': 
             stats["HP"] = 1
         
+        # 2. Type Logic
         t1 = 'Flying' if head['type1'] == 'Normal' and head['type2'] == 'Flying' else head['type1']
         t2 = body['type2'] if pd.notna(body['type2']) else body['type1']
         if t2 == t1: t2 = body['type1']
 
+        # 3. All Possible Abilities
+        a_pool = [str(head['ability1']), str(body['ability1'])]
+        for p in [head, body]:
+            a_pool.append(str(p['ability2'] if pd.notna(p['ability2']) else p['ability1']))
+            a_pool.append(str(p['hidden_ability'] if pd.notna(p['hidden_ability']) else (p['ability2'] if pd.notna(p['ability2']) else p['ability1'])))
+        abilities = ", ".join(sorted(list(set([a for a in a_pool if a.lower() != 'nan']))))
+
+        # 4. Name Logic
         prefix = str(head['name_prefix']) if 'name_prefix' in head.index else head['name'][:len(head['name'])//2]
         suffix = str(body['name_suffix']).lower() if 'name_suffix' in body.index else body['name'][len(body['name'])//2:].lower()
         
-        fusion_name = (prefix + suffix).capitalize()
-
         return {
             "Fusion Dex": f"{int(head_dex)}.{int(body_dex)}",
-            "Fusion Name": fusion_name,
+            "Fusion Name": (prefix + suffix).capitalize(),
             "Head": head['name'], "Head ID": int(head_dex),
             "Body": body['name'], "Body ID": int(body_dex),
             "Type": f"{t1}/{t2}" if t1 != t2 else t1,
-            "Abilities": ", ".join(list(set([str(body['ability1']), str(head['ability1'])]))).replace('nan', ''),
+            "Abilities": abilities,
             **stats, "Total": sum(stats.values())
         }
 
@@ -257,9 +300,22 @@ if "team" in st.session_state and st.session_state.team:
     team_cols = st.columns(6)
     for idx, member in enumerate(st.session_state.team):
         with team_cols[idx]:
-            st.image(check_fusion_sprite(member['Head ID'], member['Body ID']), width="stretch")
-            st.caption(f"**{member['Fusion Name']}**")
-            if st.button("✖", key=f"remove_member_{idx}"):
+            sprite_url = check_fusion_sprite(member['Head ID'], member['Body ID'])
+            member_types = member['Type'].split('/')
+            badges_html = "".join([get_type_badge_html(t, mini=True) for t in member_types])
+
+            # Increased margin-bottom to 15px to create padding above the button
+            st.markdown(f"""
+                <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+                    <img src="{sprite_url}" style="width: 100%; max-width: 120px; margin-bottom: 4px;">
+                    <div style="display: flex; justify-content: center; gap: 4px; margin-bottom: 15px;">
+                        {badges_html}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # The button now has visual space above it
+            if st.button("REMOVE", key=f"del_{idx}", width='stretch'):
                 st.session_state.team.pop(idx)
                 st.rerun()
 
@@ -277,12 +333,48 @@ if "team" in st.session_state and st.session_state.team:
             target_col = stat_inner_1 if i < 3 else stat_inner_2
             avg_val = sum(m[stat] for m in st.session_state.team) / len(st.session_state.team)
             with target_col:
-                st.markdown(f"<div style='font-size:0.7rem; margin-top:5px; font-weight:bold;'>{stat}: {int(avg_val)}</div>", unsafe_allow_html=True)
+                # --- UPDATED THIS LINE FOR BIGGER TEXT ---
+                st.markdown(f"""
+                    <div style='font-family: "Oswald", sans-serif; font-size: 1.1rem; font-weight: 700; color: #3b82f6; margin-top: 10px;'>
+                        {stat}: {int(avg_val)}
+                    </div>
+                """, unsafe_allow_html=True)
                 st.progress(min(avg_val / global_maxes[stat], 1.0))
         
+        # --- UPDATED BST FOOTER ---
         team_bst = sum(sum(m[s] for s in stats_list) for m in st.session_state.team) / len(st.session_state.team)
-        st.markdown(f"<div style='font-size:0.8rem; margin-top:25px; text-align:center; border-top:1px solid #444; padding-top:5px;'><b>Avg Team BST: {int(team_bst)}</b></div>", unsafe_allow_html=True)
-
+# --- ROBUST BST FOOTER ---
+        team_bst = sum(sum(m[s] for s in stats_list) for m in st.session_state.team) / len(st.session_state.team)
+        
+        st.markdown(f"""
+            <div style='
+                text-align: center; 
+                margin-top: 20px; 
+                padding: 15px 5px; 
+                border-top: 2px solid #444;
+                width: 100%;
+            '>
+                <span style='
+                    font-family: "Oswald", sans-serif; 
+                    font-size: 1.2rem; 
+                    font-weight: 400; 
+                    color: #888; 
+                    text-transform: uppercase;
+                    letter-spacing: 1px;
+                '>
+                    Avg Team Base Stat Total
+                </span>
+                <br>
+                <span style='
+                    font-family: "Oswald", sans-serif; 
+                    font-size: 2.2rem; 
+                    font-weight: 700; 
+                    color: #9333ea;
+                '>
+                    {int(team_bst)}
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
     with col_matrix:
         st.markdown("##### Type Coverage")
         all_types = list(TYPE_COLORS.keys())
@@ -317,13 +409,17 @@ if "team" in st.session_state and st.session_state.team:
             
             # Summary cell styling: turns deeper red if 3 or more members are weak
             sum_bg = "transparent"
-            if weak_count >= 3: sum_bg = "#721c24" # 50%+ of team is weak
-            elif weak_count > 0: sum_bg = "#4a1216" # 1-2 members are weak
+            if weak_count >= 3: sum_bg = "#A83EB6" # 50%+ of team is weak
+            elif weak_count > 0: sum_bg = "#db9de4" # 1-2 members are weak
             
             row_cells += f"<td style='background-color:{sum_bg}; text-align:center; font-size:0.7rem; padding:1px; border:1px solid #333; font-weight:bold;'>{weak_count if weak_count > 0 else ''}</td>"
             
-            type_color = TYPE_COLORS.get(t, "#777")
-            rows_html += f"<tr><td style='font-size:0.65rem; padding:1px; font-weight:bold; color:{type_color}; white-space:nowrap;'>{t}</td>{row_cells}</tr>"
+            # Get the badge HTML for the current type 't'
+            badge = get_type_badge_html(t, mini=True)
+            
+            # Append the new row with the badge instead of plain text
+            badge = get_type_badge_html(t, mini=True)
+            rows_html += f"<tr><td style='padding:2px; vertical-align:middle;'>{badge}</td>{row_cells}</tr>"
 
         # Table with Sigma header
         final_html = f"""
@@ -441,7 +537,7 @@ if event.selection.cells:
         
         btn_col1, btn_col2 = st.columns(2)
         with btn_col1:
-            if st.button("🔄 Swap Head/Body", width="stretch"):
+            if st.button("Swap Head/Body", width="stretch"):
                 st.session_state.swap_ids = (b_id, h_id)
                 st.rerun()
 
@@ -476,18 +572,27 @@ if event.selection.cells:
             st.markdown("### Defensive Profile")
             effs = calculate_effectiveness(current_fusion['Type'])
             w1, w2, w3 = st.columns(3)
+
             with w1:
                 st.error("Weak")
                 for t, m in effs.items():
-                    if m > 1: st.write(f"{t} {m}x")
+                    if m > 1:
+                        # Displays the badge and the multiplier (e.g., 2x or 4x)
+                        st.markdown(f"{get_type_badge_html(t)} **{m}x**", unsafe_allow_html=True)
+
             with w2:
                 st.info("Resist")
                 for t, m in effs.items():
-                    if 0 < m < 1: st.write(f"{t} {m}x")
+                    if 0 < m < 1:
+                        # Displays the badge and the multiplier (e.g., ½x)
+                        label = "½" if m == 0.5 else "¼"
+                        st.markdown(f"{get_type_badge_html(t)} **{label}x**", unsafe_allow_html=True)
+
             with w3:
                 st.warning("Immune")
                 for t, m in effs.items():
-                    if m == 0: st.write(t)
+                    if m == 0:
+                        st.markdown(get_type_badge_html(t), unsafe_allow_html=True)
 
         with col_right:
             st.markdown("### Components")
